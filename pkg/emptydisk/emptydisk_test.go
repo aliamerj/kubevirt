@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	"kubevirt.io/client-go/api"
+	"kubevirt.io/kubevirt/pkg/libvmi"
 
 	v1 "kubevirt.io/api/core/v1"
 )
@@ -17,23 +17,6 @@ var _ = Describe("EmptyDisk", func() {
 
 	var emptyDiskBaseDir string
 	var creator *emptyDiskCreator
-
-	AppendEmptyDisk := func(vmi *v1.VirtualMachineInstance, diskName string) {
-		vmi.Spec.Domain.Devices.Disks = append(vmi.Spec.Domain.Devices.Disks, v1.Disk{
-			Name: diskName,
-			DiskDevice: v1.DiskDevice{
-				Disk: &v1.DiskTarget{},
-			},
-		})
-		vmi.Spec.Volumes = append(vmi.Spec.Volumes, v1.Volume{
-			Name: diskName,
-			VolumeSource: v1.VolumeSource{
-				EmptyDisk: &v1.EmptyDiskSource{
-					Capacity: resource.MustParse("3Gi"),
-				},
-			},
-		})
-	}
 
 	BeforeEach(func() {
 		var err error
@@ -50,8 +33,10 @@ var _ = Describe("EmptyDisk", func() {
 
 	Describe("a vmi with emptyDisks attached", func() {
 		It("should get a new qcow2 image if not already present", func() {
-			vmi := api.NewMinimalVMI("testvmi")
-			AppendEmptyDisk(vmi, "testdisk")
+			vmi := libvmi.New(
+				libvmi.WithEmptyDisk("testdisk", v1.DiskBusUSB, resource.MustParse("3Gi")),
+			)
+
 			err := creator.CreateTemporaryDisks(vmi)
 			Expect(err).ToNot(HaveOccurred())
 			_, err = os.Stat(filePathForVolumeName(emptyDiskBaseDir, "testdisk"))
@@ -60,8 +45,10 @@ var _ = Describe("EmptyDisk", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 		It("should not override ", func() {
-			vmi := api.NewMinimalVMI("testvmi")
-			AppendEmptyDisk(vmi, "testdisk")
+			vmi := libvmi.New(
+				libvmi.WithEmptyDisk("testdisk", v1.DiskBusUSB, resource.MustParse("3Gi")),
+			)
+
 			err := creator.CreateTemporaryDisks(vmi)
 			Expect(err).ToNot(HaveOccurred())
 			_, err = os.Stat(filePathForVolumeName(emptyDiskBaseDir, "testdisk"))
@@ -73,8 +60,10 @@ var _ = Describe("EmptyDisk", func() {
 			Expect(NewEmptyDiskCreator().FilePathForVolumeName("volume1")).ToNot(Equal(NewEmptyDiskCreator().FilePathForVolumeName("volume2")))
 		})
 		It("should leave pre-existing disks alone", func() {
-			vmi := api.NewMinimalVMI("testvmi")
-			AppendEmptyDisk(vmi, "testdisk")
+			vmi := libvmi.New(
+				libvmi.WithEmptyDisk("testdisk", v1.DiskBusUSB, resource.MustParse("3Gi")),
+			)
+
 			err := os.WriteFile(filePathForVolumeName(emptyDiskBaseDir, "testdisk"), []byte("test"), 0777)
 			Expect(err).ToNot(HaveOccurred())
 			err = creator.CreateTemporaryDisks(vmi)
