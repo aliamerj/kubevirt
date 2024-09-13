@@ -33,7 +33,8 @@ export DOCKER_TAG=mybuild
 
 ## 4. Build and Push KubeVirt Images
 
-Build the KubeVirt manifests, Docker images, and push them to your Docker registry:
+- First, sign in to Docker through the CLI using the following command:`docker login` [Docker documentation](https://docs.docker.com/accounts/create-account/#sign-in)
+- Build the KubeVirt manifests, Docker images, and push them to your Docker registry:
 
 ```bash
 make && make push && make manifests
