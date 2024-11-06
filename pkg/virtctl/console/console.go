@@ -34,25 +34,25 @@ import (
 	kvcorev1 "kubevirt.io/client-go/kubevirt/typed/core/v1"
 
 	"kubevirt.io/kubevirt/pkg/virtctl/templates"
-	"kubevirt.io/kubevirt/pkg/virtctl/utils"
+  "kubevirt.io/kubevirt/pkg/virtctl/utils"
 )
 
-type Console struct {
-	clientConfig clientcmd.ClientConfig
+type consoleCommand struct {
 	timeout      int
+	namespace    string
+	virtCli      kubecli.KubevirtClient
+	clientConfig clientcmd.ClientConfig
 }
 
 func NewCommand(clientConfig clientcmd.ClientConfig) *cobra.Command {
-	c := Console{clientConfig: clientConfig}
+	c := consoleCommand{clientConfig: clientConfig}
 
 	cmd := &cobra.Command{
 		Use:     "console (VMI)",
 		Short:   "Connect to a console of a virtual machine instance.",
 		Example: usage(),
 		Args:    cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return c.Run(args)
-		},
+		RunE:    c.run,
 	}
 
 	cmd.Flags().IntVar(&c.timeout, "timeout", 5, "The number of minutes to wait for the virtual machine instance to be ready.")
@@ -69,32 +69,37 @@ func usage() string {
 	return usage
 }
 
-func (c *Console) Run(args []string) error {
-	namespace, _, err := c.clientConfig.Namespace()
-	if err != nil {
-		return err
-	}
+func (c *consoleCommand) run(cmd *cobra.Command, args []string) error {
 
 	vmi := args[0]
 
-	virtCli, err := kubecli.GetKubevirtClientFromClientConfig(c.clientConfig)
-	if err != nil {
+	var err error
+
+	if c.namespace, _, err = c.clientConfig.Namespace(); err != nil {
 		return err
 	}
 
-	stdinReader, stdinWriter := io.Pipe()
-	stdoutReader, stdoutWriter := io.Pipe()
+	if c.virtCli, err = kubecli.GetKubevirtClientFromClientConfig(c.clientConfig); err != nil {
+		return fmt.Errorf("cannot obtain KubeVirt client: %v", err)
+	}
 
+	return c.handleConsoleConnection(vmi)
+}
+
+func (c *consoleCommand) handleConsoleConnection(vmi string) error {
 	// in -> stdinWriter | stdinReader -> console
 	// out <- stdoutReader | stdoutWriter <- console
 	// Wait until the virtual machine is in running phase, user interrupt or timeout
+	stdinReader, stdinWriter := io.Pipe()
+	stdoutReader, stdoutWriter := io.Pipe()
+
 	resChan := make(chan error)
 	runningChan := make(chan error)
 	waitInterrupt := make(chan os.Signal, 1)
 	signal.Notify(waitInterrupt, os.Interrupt)
 
 	go func() {
-		con, err := virtCli.VirtualMachineInstance(namespace).SerialConsole(vmi, &kvcorev1.SerialConsoleOptions{ConnectionTimeout: time.Duration(c.timeout) * time.Minute})
+		con, err := c.virtCli.VirtualMachineInstance(c.namespace).SerialConsole(vmi, &kvcorev1.SerialConsoleOptions{ConnectionTimeout: time.Duration(c.timeout) * time.Minute})
 		runningChan <- err
 
 		if err != nil {
@@ -112,12 +117,12 @@ func (c *Console) Run(args []string) error {
 		// Make a new line in the terminal
 		fmt.Println()
 		return nil
-	case err = <-runningChan:
+	case err := <-runningChan:
 		if err != nil {
 			return err
 		}
 	}
-	err = utils.AttachConsole(stdinReader, stdoutReader, stdinWriter, stdoutWriter,
+  err := utils.AttachConsole(stdinReader, stdoutReader, stdinWriter, stdoutWriter,
 		fmt.Sprint("Successfully connected to ", vmi, " console. The escape sequence is ^]\n"),
 		resChan)
 
